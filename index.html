@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IPTV Player</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="guide-mode">
+  <video id="video" class="video" autoplay></video>
+  <iframe id="webPlayer" class="web-player" title="Web channel" allow="autoplay; fullscreen"></iframe>
+
+  <div id="guide" class="guide">
+    <div class="backdrop"></div>
+    <header class="guide-header">
+      <div class="brand-lockup">
+        <img class="brand-logo" src="brand.png" alt="IPTV Television">
+        <h1 class="brand">IPTV Television</h1>
+        <div id="subtitle" class="subtitle">Live channels</div>
+      </div>
+      <div class="header-status">
+        <span id="playlistBadge" class="badge">Sports</span>
+        <span id="clock" class="clock"></span>
+      </div>
+    </header>
+
+    <div class="guide-body">
+      <nav id="rail" class="rail" aria-label="Playlists and groups"></nav>
+
+      <section class="list-pane">
+        <div class="search-wrap">
+          <span class="search-icon">Search</span>
+          <input id="search" class="search" type="text" placeholder="Search channels">
+        </div>
+        <div id="channels" class="channels" aria-label="Channel list"></div>
+        <footer class="list-footer">
+          <span id="listInfo" class="list-info"></span>
+          <span id="nowPlaying" class="now-playing"></span>
+        </footer>
+      </section>
+    </div>
+
+    <footer class="hints">
+      <span><b>OK</b> Play</span>
+      <span><b>PLAY</b> Favorite</span>
+      <span><b>▲ ▼</b> Move</span>
+      <span><b>◄ ►</b> Panels</span>
+      <span><b>CH</b> Zap</span>
+      <span><b>RETURN</b> Back</span>
+    </footer>
+  </div>
+
+  <div id="osd" class="osd">
+    <div class="osd-title" id="osdTitle"></div>
+    <div class="osd-sub" id="osdSub"></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="spinner" class="spinner"><span></span><b>Loading…</b></div>
+
+  <div id="splash" class="splash">
+    <img class="splash-logo" src="brand.png" alt="IPTV Television">
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
