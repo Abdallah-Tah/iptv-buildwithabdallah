@@ -10,9 +10,22 @@
         logo: "https://rtd.dj/wp-content/uploads/2025/10/RTD-LOGO2013.png",
         group: "Djibouti",
         url: "https://rtd.dj/rtd-en-direct/",
-        embed: "https://www.youtube.com/embed/VvWdrUU9YBc?autoplay=1&controls=1&rel=0&playsinline=0"
+        /* Permanent live embed for the RTD WEB TV channel — keeps working
+           even when RTD restarts their stream (video ids change, this doesn't). */
+        embed: "https://www.youtube.com/embed/live_stream?channel=UCB0NxICFmGabAalD46J2i4A&autoplay=1&controls=1&rel=0"
+      },
+      {
+        title: "RTD (Giniko)",
+        logo: "https://rtd.dj/wp-content/uploads/2025/10/RTD-LOGO2013.png",
+        group: "Djibouti",
+        url: "https://www.giniko.com/watch.php?id=1224",
+        /* Giniko signs stream URLs with a 24h token, so we scrape a fresh
+           one from the watch page each time instead of hardcoding it. */
+        resolve: "https://www.giniko.com/watch.php?id=1224"
       }
     ] },
+    { label: "Yemen",        url: "https://iptv-org.github.io/iptv/countries/ye.m3u" },
+    { label: "beIN Sports",  url: "https://iptv-org.github.io/iptv/categories/sports.m3u", filter: "bein" },
     { label: "Arabic",       url: "https://iptv-org.github.io/iptv/languages/ara.m3u" },
     { label: "Sports",       url: "https://iptv-org.github.io/iptv/categories/sports.m3u" },
     { label: "All Channels", url: "https://iptv-org.github.io/iptv/index.m3u" },
@@ -20,6 +33,7 @@
   ];
   var STORE_KEY = "iptv-state-v2";
   var FAVORITES_KEY = "iptv-favorites-v1";
+  var CUSTOM_KEY = "iptv-custom-playlists-v1";
   var FAVORITES_URL = "favorites://local";
   var FALLBACK_RAIL_WINDOW = 12;
   var FALLBACK_LIST_WINDOW = 9;
@@ -54,6 +68,8 @@
   var streamToken = 0;
   var autoSkipCount = 0;
   var favorites = {};
+  var customPlaylists = [];
+  var settingsOpen = false;
 
   var video = document.getElementById("video");
   var webPlayer = document.getElementById("webPlayer");
@@ -152,6 +168,14 @@
     try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "{}") || {}; }
     catch (e) { favorites = {}; }
   }
+  function loadCustomPlaylists() {
+    try { customPlaylists = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]") || []; }
+    catch (e) { customPlaylists = []; }
+  }
+  function saveCustomPlaylists() {
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(customPlaylists)); }
+    catch (e) { toast("Could not save playlist list."); }
+  }
   function saveFavorites() {
     try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }
     catch (e) { toast("Could not save favorite list."); }
@@ -186,7 +210,8 @@
         logo: ch.logo || "",
         group: ch.group || "",
         url: ch.url,
-        embed: ch.embed || ""
+        embed: ch.embed || "",
+        resolve: ch.resolve || ""
       };
       toast("Added to Favorites: " + ch.title);
     }
@@ -290,7 +315,16 @@
       if (!r.ok) { throw new Error("HTTP " + r.status); }
       return r.text();
     }).then(function (text) {
-      finishLoadPlaylist(pl, parseM3U(text), restoreState);
+      var parsed = parseM3U(text);
+      if (pl.filter) {
+        var re = new RegExp(pl.filter, "i");
+        var kept = [];
+        for (var i = 0; i < parsed.length; i++) {
+          if (re.test(parsed[i].title)) { kept.push(parsed[i]); }
+        }
+        parsed = kept;
+      }
+      finishLoadPlaylist(pl, parsed, restoreState);
     }).catch(function (err) {
       busy(false);
       toast("Could not load " + pl.label + ": " + err.message);
@@ -320,6 +354,10 @@
       for (i = 0; i < DEFAULT_PLAYLISTS.length; i++) {
         railItems.push({ kind: "playlist", label: DEFAULT_PLAYLISTS[i].label, playlist: DEFAULT_PLAYLISTS[i] });
       }
+      for (i = 0; i < customPlaylists.length; i++) {
+        railItems.push({ kind: "playlist", label: customPlaylists[i].label, playlist: customPlaylists[i], custom: true, customIndex: i });
+      }
+      railItems.push({ kind: "settings", label: "+ Add Playlist URL" });
     } else {
       railItems.push({ kind: "back", label: "‹ Playlists" });
       railItems.push({ kind: "favorites", label: "Favorites" });
@@ -335,6 +373,8 @@
     if (!item) { return; }
     if (item.kind === "playlist") {
       loadPlaylist(item.playlist, null);
+    } else if (item.kind === "settings") {
+      openSettings();
     } else if (item.kind === "favorites") {
       loadFavoritesPlaylist();
     } else if (item.kind === "back") {
@@ -475,6 +515,25 @@
     webPlayer.src = ch.embed;
   }
 
+  /* Fetch a provider watch page and play the tokenized stream URL found on
+     it (tokens expire, so this runs on every play — see channel.resolve). */
+  function resolveAndPlay(ch, token) {
+    fetch(ch.resolve).then(function (r) {
+      if (!r.ok) { throw new Error("HTTP " + r.status); }
+      return r.text();
+    }).then(function (html) {
+      if (token !== streamToken) { return; }
+      var m = html.match(/https?:\/\/[^"'<>\s]+\.m3u8\?[^"'<>\s]*wmsAuthSign=[^"'<>\s]+/)
+           || html.match(/https?:\/\/[^"'<>\s]+\.m3u8[^"'<>\s]*/);
+      if (!m) { throw new Error("no stream link on page"); }
+      video.src = m[0];
+      var p = video.play();
+      if (p && p.catch) { p.catch(function () { /* error event handles it */ }); }
+    }).catch(function () {
+      if (token === streamToken) { handleStreamFailure("Could not fetch live link"); }
+    });
+  }
+
   function showOSD() {
     var ch = channels[playingIdx];
     if (!ch) { return; }
@@ -497,6 +556,10 @@
     streamToken++;
     if (ch.embed) {
       showWebPlayer(ch);
+    } else if (ch.resolve) {
+      clearWebPlayer();
+      startStreamTimer(streamToken, ch.title, "Fetching live link for " + ch.title + "...");
+      resolveAndPlay(ch, streamToken);
     } else {
       clearWebPlayer();
       startStreamTimer(streamToken, ch.title);
@@ -609,6 +672,9 @@
       case KEY.PLAYPAUSE:
       case KEY.PLAY:
         if (zone === "list") { toggleFavorite(selectedChannel()); }
+        else if (zone === "rail" && railItems[railIndex] && railItems[railIndex].custom) {
+          removeCustomPlaylist(railItems[railIndex].customIndex);
+        }
         return true;
       case KEY.BACK:
         if (playingIdx >= 0 && video.src) { document.body.className = "player-mode"; showOSD(); }
@@ -650,6 +716,69 @@
     return false;
   }
 
+  // ---- settings (add playlist URL) ----
+  var settingsEl = document.getElementById("settings");
+  var customUrlEl = document.getElementById("customUrl");
+
+  function openSettings() {
+    settingsOpen = true;
+    customUrlEl.value = "";
+    settingsEl.className = "settings show";
+    setTimeout(function () { customUrlEl.focus(); }, 50);
+  }
+  function closeSettings() {
+    settingsOpen = false;
+    customUrlEl.blur();
+    settingsEl.className = "settings";
+  }
+  function labelFromUrl(url) {
+    var m = url.match(/\/([^\/?#]+)\.(m3u8?|txt)([?#]|$)/i);
+    var name = m ? decodeURIComponent(m[1]).replace(/[_-]+/g, " ") : "";
+    if (!name) { name = "My Playlist " + (customPlaylists.length + 1); }
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+  function saveCustomPlaylist() {
+    var url = customUrlEl.value.trim();
+    if (!/^https?:\/\/.+/i.test(url)) {
+      toast("Enter a full URL starting with http:// or https://");
+      return;
+    }
+    for (var i = 0; i < customPlaylists.length; i++) {
+      if (customPlaylists[i].url === url) {
+        closeSettings();
+        loadPlaylist(customPlaylists[i], null);
+        return;
+      }
+    }
+    var pl = { label: labelFromUrl(url), url: url };
+    customPlaylists.push(pl);
+    saveCustomPlaylists();
+    buildRail();
+    closeSettings();
+    toast("Saved “" + pl.label + "” — press PLAY on it to remove it later.", 5000);
+    loadPlaylist(pl, null);
+  }
+  function removeCustomPlaylist(idx) {
+    var pl = customPlaylists[idx];
+    if (!pl) { return; }
+    customPlaylists.splice(idx, 1);
+    saveCustomPlaylists();
+    buildRail();
+    renderAll();
+    toast("Removed playlist: " + pl.label);
+  }
+
+  function handleSettingsKey(code) {
+    if (document.activeElement === customUrlEl) {
+      if (code === KEY.ENTER) { saveCustomPlaylist(); return true; }
+      if (code === KEY.BACK) { customUrlEl.blur(); return true; }
+      return false; // let the on-screen keyboard handle typing
+    }
+    if (code === KEY.ENTER) { customUrlEl.focus(); return true; }
+    if (code === KEY.BACK) { closeSettings(); renderAll(); return true; }
+    return true; // swallow everything else while the dialog is open
+  }
+
   function exitApp() {
     if (window.tizen && tizen.application) {
       try { tizen.application.getCurrentApplication().exit(); return; } catch (e) { }
@@ -664,7 +793,8 @@
       ev.preventDefault();
       return;
     }
-    var handled = inGuide() ? handleGuideKey(code) : handlePlayerKey(code);
+    var handled = settingsOpen ? handleSettingsKey(code)
+      : (inGuide() ? handleGuideKey(code) : handlePlayerKey(code));
     if (handled) { ev.preventDefault(); }
   });
 
@@ -693,6 +823,7 @@
   // ---- boot ----
   registerRemoteKeys();
   loadFavorites();
+  loadCustomPlaylists();
   buildRail();
   renderAll();
   setTimeout(hideSplash, SPLASH_MS);
@@ -701,9 +832,12 @@
   if (st && st.url === FAVORITES_URL) {
     loadFavoritesPlaylist();
   } else if (st && st.url) {
+    var known = DEFAULT_PLAYLISTS.concat(customPlaylists);
     var pl = null;
-    for (var i = 0; i < DEFAULT_PLAYLISTS.length; i++) {
-      if (DEFAULT_PLAYLISTS[i].url === st.url) { pl = DEFAULT_PLAYLISTS[i]; }
+    for (var i = 0; i < known.length; i++) {
+      if (known[i].url !== st.url) { continue; }
+      // several playlists can share a URL (beIN filters Sports) — prefer label match
+      if (!pl || known[i].label === st.label) { pl = known[i]; }
     }
     loadPlaylist(pl || { label: st.label || "Saved playlist", url: st.url }, st);
   } else {

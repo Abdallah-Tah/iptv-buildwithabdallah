@@ -4,3 +4,6 @@
 *.wgt
 author-signature.xml
 signature1.xml
+.tv_ip_cache
+mac-app/.build/
+mac-app/TV Deploy.app/
